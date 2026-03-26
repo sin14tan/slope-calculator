@@ -37,27 +37,11 @@ GitHub Pages: `https://<username>.github.io/slope-calculator/`
 複数の測定単位が存在する場合、各測定単位の勾配（分母）と面積から加重平均を算出可能。
 
 ## 技術仕様
-
 - **単一HTMLファイル**（`index.html` のみ）
 - React 18 + Babel Standalone（CDN読み込み）
 - SVGによるグラフィカル表示（断面図・傾斜ゲージ）
 - サーバー不要・オフライン対応（初回読み込み後）
 - モバイルファースト設計
-
-## GitHub Pagesへのデプロイ
-
-1. このリポジトリをGitHubにpush
-2. Settings → Pages → Source: `main` ブランチ / `/ (root)` を選択
-3. Save → 数分で公開されます
-
-```bash
-git init
-git add .
-git commit -m "初回コミット: 中山間傾斜電卓"
-git branch -M main
-git remote add origin https://github.com/<username>/slope-calculator.git
-git push -u origin main
-```
 
 ## 根拠法令
 
