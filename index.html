@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>中山間地域等直接支払交付金 傾斜電卓</title>
+  <meta name="description" content="中山間地域等直接支払交付金の勾配判定を行う傾斜電卓。A点・B点の標高と水平距離から傾斜区分を自動判定。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif; -webkit-font-smoothing: antialiased; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    const COLORS = {
+      steep: { bg: "#F97316", light: "#FED7AA", text: "#9A3412", label: "急傾斜" },
+      gentle: { bg: "#3B82F6", light: "#BFDBFE", text: "#1E40AF", label: "緩傾斜" },
+      none: { bg: "#9CA3AF", light: "#E5E7EB", text: "#4B5563", label: "対象外" },
+    };
+
+    function classify(denominator, degrees, landType) {
+      if (landType === "田") {
+        const judged = Math.ceil(denominator * 10) / 10;
+        if (judged <= 20) return "steep";
+        if (judged <= 100) return "gentle";
+        return "none";
+      } else {
+        const judged = Math.floor(degrees * 10) / 10;
+        if (judged >= 15) return "steep";
+        if (judged >= 8) return "gentle";
+        return "none";
+      }
+    }
+
+    function CrossSection({ heightDiff, distance, category, landType }) {
+      const w = 360, h = 200, pad = 50;
+      const drawW = w - pad * 2, drawH = h - pad * 2;
+      const col = COLORS[category];
+      const scaleX = drawW / Math.max(distance, 1);
+      const scaleY = drawH / Math.max(heightDiff, 0.1);
+      const scale = Math.min(scaleX, scaleY) * 0.85;
+      const dxDraw = distance * scale;
+      const dyDraw = heightDiff * scale;
+      const bx = pad + 10, by = h - pad;
+      const ax = bx + dxDraw, ay = by - dyDraw;
+
+      return (
+        <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", maxHeight: 220 }}>
+          <defs>
+            <linearGradient id="slopeGrad" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%" stopColor={col.light} />
+              <stop offset="100%" stopColor={col.bg} stopOpacity="0.5" />
+            </linearGradient>
+          </defs>
+          <polygon points={`${bx},${by} ${ax},${ay} ${ax},${by}`} fill="url(#slopeGrad)" stroke={col.bg} strokeWidth="2" />
+          <line x1={bx} y1={by} x2={ax} y2={by} stroke="#94A3B8" strokeWidth="1" strokeDasharray="6 3" />
+          <line x1={ax} y1={by} x2={ax} y2={ay} stroke="#94A3B8" strokeWidth="1" strokeDasharray="6 3" />
+          <line x1={bx} y1={by} x2={ax} y2={ay} stroke={col.bg} strokeWidth="3" strokeLinecap="round" />
+          <circle cx={bx} cy={by} r="5" fill={col.bg} />
+          <circle cx={ax} cy={ay} r="5" fill={col.bg} />
+          <text x={bx} y={by + 18} textAnchor="middle" fontSize="11" fill="#64748B" fontWeight="600">B点</text>
+          <text x={ax} y={ay - 10} textAnchor="middle" fontSize="11" fill="#64748B" fontWeight="600">A点</text>
+          <text x={(bx + ax) / 2} y={by + 34} textAnchor="middle" fontSize="10" fill="#475569">水平距離 {distance.toFixed(1)}m</text>
+          <text x={ax + 14} y={(ay + by) / 2} textAnchor="start" fontSize="10" fill="#475569" transform={`rotate(90, ${ax + 14}, ${(ay + by) / 2})`}>高低差 {heightDiff.toFixed(2)}m</text>
+          {heightDiff > 0 && distance > 0 && (() => {
+            const arcR = Math.min(dxDraw, dyDraw, 40);
+            const angle = Math.atan2(dyDraw, dxDraw);
+            const ex = bx + arcR, ey = by;
+            const sx = bx + arcR * Math.cos(angle), sy = by - arcR * Math.sin(angle);
+            const deg = Math.atan(heightDiff / distance) * 180 / Math.PI;
+            return (
+              <>
+                <path d={`M ${ex} ${ey} A ${arcR} ${arcR} 0 0 0 ${sx} ${sy}`} fill="none" stroke={col.bg} strokeWidth="1.5" />
+                <text x={bx + arcR + 8} y={by - 6} fontSize="10" fill={col.text} fontWeight="600">{deg.toFixed(1)}°</text>
+              </>
+            );
+          })()}
+        </svg>
+      );
+    }
+
+    function Gauge({ value, landType, category }) {
+      const col = COLORS[category];
+      const isRice = landType === "田";
+      const startDeg = -90, sweep = 180;
+
+      let normalized;
+      if (isRice) {
+        const clamped = Math.max(5, Math.min(200, value));
+        normalized = 1 - (clamped - 5) / (200 - 5);
+      } else {
+        const clamped = Math.max(0, Math.min(30, value));
+        normalized = clamped / 30;
+      }
+
+      const cx = 150, cy = 120, r = 90;
+
+      function polarXY(deg) {
+        const rad = (deg - 90) * Math.PI / 180;
+        return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+      }
+
+      function arcPath(normStart, normEnd) {
+        const a1 = startDeg + normStart * sweep;
+        const a2 = startDeg + normEnd * sweep;
+        const p1 = polarXY(a1), p2 = polarXY(a2);
+        const angleDiff = Math.abs(a2 - a1);
+        const large = angleDiff > 180 ? 1 : 0;
+        return `M ${p1.x} ${p1.y} A ${r} ${r} 0 ${large} 1 ${p2.x} ${p2.y}`;
+      }
+
+      let zones;
+      if (isRice) {
+        zones = [
+          { start: 0, end: 0.513, color: COLORS.none.bg },
+          { start: 0.513, end: 0.923, color: COLORS.gentle.bg },
+          { start: 0.923, end: 1, color: COLORS.steep.bg },
+        ];
+      } else {
+        zones = [
+          { start: 0, end: 8 / 30, color: COLORS.none.bg },
+          { start: 8 / 30, end: 15 / 30, color: COLORS.gentle.bg },
+          { start: 15 / 30, end: 1, color: COLORS.steep.bg },
+        ];
+      }
+
+      const needleDeg = startDeg + normalized * sweep;
+      const needleLen = r - 18;
+      const nRad = (needleDeg - 90) * Math.PI / 180;
+      const nx = cx + needleLen * Math.cos(nRad);
+      const ny = cy + needleLen * Math.sin(nRad);
+
+      const labelR = r + 16;
+      function labelPos(norm) {
+        const deg = startDeg + norm * sweep;
+        const rad = (deg - 90) * Math.PI / 180;
+        return { x: cx + labelR * Math.cos(rad), y: cy + labelR * Math.sin(rad) };
+      }
+
+      const labels = isRice
+        ? [{ norm: 0, text: "1/200" }, { norm: 0.513, text: "1/100" }, { norm: 0.923, text: "1/20" }, { norm: 1, text: "1/5" }]
+        : [{ norm: 0, text: "0°" }, { norm: 8/30, text: "8°" }, { norm: 15/30, text: "15°" }, { norm: 1, text: "30°" }];
+
+      return (
+        <svg viewBox="0 0 300 175" style={{ width: "100%", maxHeight: 175 }}>
+          {zones.map((z, i) => (
+            <path key={i} d={arcPath(z.start, z.end)} fill="none" stroke={z.color} strokeWidth="16" strokeLinecap="butt" opacity="0.6" />
+          ))}
+          {labels.map((l, i) => {
+            const inner = r - 12, outer = r + 4;
+            const deg = startDeg + l.norm * sweep;
+            const rad = (deg - 90) * Math.PI / 180;
+            return <line key={i} x1={cx + inner * Math.cos(rad)} y1={cy + inner * Math.sin(rad)} x2={cx + outer * Math.cos(rad)} y2={cy + outer * Math.sin(rad)} stroke="#94A3B8" strokeWidth="1.5" />;
+          })}
+          {labels.map((l, i) => {
+            const p = labelPos(l.norm);
+            const anchor = l.norm < 0.3 ? "end" : l.norm > 0.7 ? "start" : "middle";
+            return <text key={i} x={p.x} y={p.y + 4} fontSize="9" fill="#64748B" textAnchor={anchor} fontWeight="500">{l.text}</text>;
+          })}
+          <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={col.bg} strokeWidth="3" strokeLinecap="round" />
+          <circle cx={cx} cy={cy} r="6" fill={col.bg} />
+          <circle cx={cx} cy={cy} r="3" fill="#FFF" />
+          <text x={cx} y={cy + 32} fontSize="13" fill={col.text} textAnchor="middle" fontWeight="700">{COLORS[category].label}</text>
+        </svg>
+      );
+    }
+
+    function WeightedAverage({ landType }) {
+      const [units, setUnits] = useState([{ denom: "", area: "" }, { denom: "", area: "" }]);
+      const addUnit = () => setUnits([...units, { denom: "", area: "" }]);
+      const removeUnit = (i) => { if (units.length <= 2) return; setUnits(units.filter((_, idx) => idx !== i)); };
+      const update = (i, field, val) => { const u = [...units]; u[i] = { ...u[i], [field]: val }; setUnits(u); };
+
+      const result = useMemo(() => {
+        const parsed = units.map(u => ({ denom: parseFloat(u.denom), area: parseFloat(u.area) })).filter(u => !isNaN(u.denom) && !isNaN(u.area) && u.denom > 0 && u.area > 0);
+        if (parsed.length < 2) return null;
+        const totalArea = parsed.reduce((s, u) => s + u.area, 0);
+        const weightedDenom = parsed.reduce((s, u) => s + u.denom * u.area, 0) / totalArea;
+        const degrees = Math.atan(1 / weightedDenom) * (180 / Math.PI);
+        const cat = classify(weightedDenom, degrees, landType);
+        return { weightedDenom: Math.round(weightedDenom * 10) / 10, degrees, cat, totalArea };
+      }, [units, landType]);
+
+      return (
+        <div style={{ marginTop: 16, padding: 16, borderRadius: 12, background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#334155" }}>加重平均計算</h3>
+            <button onClick={addUnit} style={{ fontSize: 12, padding: "4px 12px", borderRadius: 8, background: "#E0E7FF", color: "#3730A3", fontWeight: 600, border: "none", cursor: "pointer" }}>＋ 測定単位追加</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {units.map((u, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: "#64748B", minWidth: 24 }}>#{i + 1}</span>
+                <input type="number" inputMode="decimal" step="0.1" placeholder="分母" value={u.denom} onChange={e => update(i, "denom", e.target.value)} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 14, outline: "none" }} />
+                <input type="number" inputMode="decimal" step="0.01" placeholder="面積(a)" value={u.area} onChange={e => update(i, "area", e.target.value)} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid #CBD5E1", fontSize: 14, outline: "none" }} />
+                {units.length > 2 && <button onClick={() => removeUnit(i)} style={{ fontSize: 12, color: "#EF4444", background: "none", border: "none", cursor: "pointer" }}>✕</button>}
+              </div>
+            ))}
+          </div>
+          {result && (
+            <div style={{ marginTop: 12, padding: 12, borderRadius: 8, textAlign: "center", background: COLORS[result.cat].light, border: `2px solid ${COLORS[result.cat].bg}` }}>
+              <div style={{ fontSize: 12, color: "#64748B" }}>加重平均勾配</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: COLORS[result.cat].text }}>1/{result.weightedDenom.toFixed(1)}</div>
+              <div style={{ fontSize: 12, color: "#64748B" }}>({result.degrees.toFixed(1)}° ／ 合計面積 {result.totalArea.toFixed(2)}a)</div>
+              <div style={{ marginTop: 4, display: "inline-block", padding: "2px 12px", borderRadius: 99, fontSize: 12, fontWeight: 700, background: COLORS[result.cat].bg, color: "#FFF" }}>{COLORS[result.cat].label}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function SlopeCalculator() {
+      const [landType, setLandType] = useState("田");
+      const [elevA, setElevA] = useState("");
+      const [elevB, setElevB] = useState("");
+      const [distance, setDistance] = useState("");
+      const [showWeighted, setShowWeighted] = useState(false);
+
+      const result = useMemo(() => {
+        const a = parseFloat(elevA), b = parseFloat(elevB), d = parseFloat(distance);
+        if (isNaN(a) || isNaN(b) || isNaN(d) || d <= 0) return null;
+        const heightDiff = Math.abs(a - b);
+        if (heightDiff === 0) return { heightDiff: 0, denominator: Infinity, degrees: 0, category: "none", distance: d };
+        const denominator = d / heightDiff;
+        const denominatorRound = Math.round(denominator * 10) / 10;
+        const degrees = Math.atan(heightDiff / d) * (180 / Math.PI);
+        const category = classify(denominator, degrees, landType);
+        return { heightDiff, denominator: denominatorRound, degrees, category, distance: d };
+      }, [elevA, elevB, distance, landType]);
+
+      const col = result ? COLORS[result.category] : COLORS.none;
+
+      const tabStyle = (active) => ({
+        flex: 1, padding: "10px 0", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer",
+        background: active ? "#1E293B" : "#FFF", color: active ? "#FFF" : "#64748B",
+        border: active ? "none" : "1px solid #E2E8F0", boxShadow: active ? "0 2px 8px rgba(0,0,0,0.15)" : "none",
+      });
+
+      const inputStyle = { width: "100%", padding: "10px 32px 10px 12px", borderRadius: 8, border: "1.5px solid #CBD5E1", fontSize: 16, outline: "none" };
+
+      return (
+        <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 30%, #F0F9FF 70%, #EFF6FF 100%)", fontFamily: "'Noto Sans JP', 'Hiragino Sans', sans-serif" }}>
+          <div style={{ maxWidth: 420, margin: "0 auto", padding: 16 }}>
+            {/* Header */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <svg width="28" height="28" viewBox="0 0 28 28">
+                  <polygon points="4,24 24,24 24,8" fill="#22C55E" opacity="0.3" />
+                  <line x1="4" y1="24" x2="24" y2="8" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" />
+                  <circle cx="4" cy="24" r="3" fill="#16A34A" />
+                  <circle cx="24" cy="8" r="3" fill="#16A34A" />
+                </svg>
+                <h1 style={{ fontSize: 17, fontWeight: 800, color: "#1E293B", letterSpacing: "-0.02em" }}>中山間地域等直接支払交付金</h1>
+              </div>
+              <p style={{ fontSize: 13, color: "#475569", fontWeight: 600 }}>傾斜電卓（勾配判定ツール）</p>
+            </div>
+
+            {/* Land type tabs */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+              {["田", "畑"].map(t => (
+                <button key={t} onClick={() => setLandType(t)} style={tabStyle(landType === t)}>
+                  {t === "田" ? "田（水田）" : "畑（草地等）"}
+                </button>
+              ))}
+            </div>
+
+            {/* Criteria */}
+            <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, background: "#FFF", border: "1px solid #E2E8F0" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 8 }}>
+                {landType === "田" ? "判定基準（分数表示・分母切り上げ）" : "判定基準（度数表示・小数切り捨て）"}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {landType === "田" ? (
+                  <>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.steep.light, color: COLORS.steep.text, fontWeight: 600 }}>急 1/20以上</span>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.gentle.light, color: COLORS.gentle.text, fontWeight: 600 }}>緩 1/100以上</span>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.none.light, color: COLORS.none.text, fontWeight: 600 }}>対象外</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.steep.light, color: COLORS.steep.text, fontWeight: 600 }}>急 15°以上</span>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.gentle.light, color: COLORS.gentle.text, fontWeight: 600 }}>緩 8°以上</span>
+                    <span style={{ fontSize: 12, padding: "4px 8px", borderRadius: 99, background: COLORS.none.light, color: COLORS.none.text, fontWeight: 600 }}>対象外</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Input */}
+            <div style={{ padding: 16, borderRadius: 12, marginBottom: 16, background: "#FFF", border: "1px solid #E2E8F0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+              {[
+                { label: "A点 標高", value: elevA, set: setElevA, ph: "高い方" },
+                { label: "B点 標高", value: elevB, set: setElevB, ph: "低い方" },
+                { label: "水平距離", value: distance, set: setDistance, ph: "A-B間" },
+              ].map(({ label, value, set, ph }, idx) => (
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: idx < 2 ? 12 : 0 }}>
+                  <label style={{ fontSize: 14, fontWeight: 700, color: "#475569", minWidth: 72 }}>{label}</label>
+                  <div style={{ flex: 1, position: "relative" }}>
+                    <input type="number" inputMode="decimal" step="any" value={value} onChange={e => set(e.target.value)} placeholder={ph} style={inputStyle}
+                      onFocus={e => e.target.style.borderColor = "#3B82F6"} onBlur={e => e.target.style.borderColor = "#CBD5E1"} />
+                    <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#94A3B8" }}>m</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Result */}
+            {result && result.heightDiff > 0 && (
+              <div style={{ borderRadius: 12, overflow: "hidden", marginBottom: 16, background: "#FFF", border: `2px solid ${col.bg}`, boxShadow: `0 4px 12px ${col.bg}33` }}>
+                <div style={{ padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: col.bg }}>
+                  <span style={{ color: "#FFF", fontSize: 14, fontWeight: 700 }}>判定結果</span>
+                  <span style={{ color: "#FFF", fontSize: 20, fontWeight: 900 }}>{col.label}</span>
+                </div>
+                <div style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, textAlign: "center" }}>
+                  <div><div style={{ fontSize: 12, color: "#94A3B8" }}>高低差</div><div style={{ fontSize: 16, fontWeight: 700, color: "#1E293B" }}>{result.heightDiff.toFixed(2)}m</div></div>
+                  <div><div style={{ fontSize: 12, color: "#94A3B8" }}>勾配</div><div style={{ fontSize: 16, fontWeight: 700, color: col.text }}>1/{result.denominator.toFixed(1)}</div></div>
+                  <div><div style={{ fontSize: 12, color: "#94A3B8" }}>角度</div><div style={{ fontSize: 16, fontWeight: 700, color: col.text }}>{result.degrees.toFixed(2)}°</div></div>
+                </div>
+                <div style={{ padding: "0 16px 8px" }}>
+                  <div style={{ padding: 8, borderRadius: 8, textAlign: "center", fontSize: 12, background: col.light, color: col.text }}>
+                    {landType === "田"
+                      ? `判定分母（切り上げ）: ${Math.ceil(result.denominator * 10) / 10} → 1/${Math.ceil(result.denominator * 10) / 10}`
+                      : `判定度数（切り捨て）: ${(Math.floor(result.degrees * 10) / 10).toFixed(1)}°`}
+                  </div>
+                </div>
+                <div style={{ padding: "0 16px 8px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", marginBottom: 4 }}>断面図</div>
+                  <CrossSection heightDiff={result.heightDiff} distance={result.distance} category={result.category} landType={landType} />
+                </div>
+                <div style={{ padding: "0 16px 16px" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#94A3B8", marginBottom: 4 }}>傾斜ゲージ</div>
+                  <Gauge value={landType === "田" ? result.denominator : result.degrees} landType={landType} category={result.category} />
+                </div>
+              </div>
+            )}
+
+            {result && result.heightDiff === 0 && (
+              <div style={{ borderRadius: 12, padding: 16, marginBottom: 16, textAlign: "center", background: "#F1F5F9", border: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 14, color: "#64748B" }}>高低差が 0 のため勾配を計算できません</div>
+              </div>
+            )}
+
+            {/* Weighted average toggle */}
+            <button onClick={() => setShowWeighted(!showWeighted)} style={{
+              width: "100%", padding: "12px 0", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer",
+              background: showWeighted ? "#1E293B" : "#FFF", color: showWeighted ? "#FFF" : "#475569",
+              border: showWeighted ? "none" : "1px solid #E2E8F0",
+            }}>
+              {showWeighted ? "▼ 加重平均モード" : "▶ 加重平均モード（複数測定単位）"}
+            </button>
+
+            {showWeighted && <WeightedAverage landType={landType} />}
+
+            <div style={{ marginTop: 24, textAlign: "center" }}>
+              <p style={{ fontSize: 10, color: "#94A3B8", lineHeight: 1.6 }}>
+                中山間地域等直接支払交付金 実施要領に基づく勾配判定<br />
+                ※正式な判定は所管機関の確認を得てください
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<SlopeCalculator />);
+  </script>
+</body>
+</html>
