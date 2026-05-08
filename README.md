@@ -4,7 +4,7 @@
 
 ## デモ
 
-GitHub Pages: `https://<username>.github.io/slope-calculator/`
+GitHub Pages: `https://sin14tan.github.io/slope-calculator/`
 
 ## 機能
 
